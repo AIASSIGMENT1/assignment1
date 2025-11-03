@@ -1,19 +1,16 @@
 import pandas as pd
 import glob
 
-# --- 2. Load transactions data ---
-# This file contains the sales funnel information (customer status history)
+# Load transactions data
 transactions = pd.read_csv("transactions.csv", parse_dates=['Date'])
 
-# --- 3. Load website analytics data ---
-# Contains page views, visitors, bounce rate, and conversion rate
+# Load website analytics data
 analytics = pd.read_csv("analytics_data.csv")
 
-# --- 4. Load trip budget data ---
-# Contains budget category (A–D) per trip and year
+# Load trip budget data
 budget = pd.read_excel("budget_units.xlsx")
 
-# --- 5. Load satisfaction score files for multiple years ---
+# Load satisfaction score files for multiple years
 # Automatically detects all files that start with "scores_"
 score_files = glob.glob("scores_*.csv")
 
