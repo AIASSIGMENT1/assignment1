@@ -8,7 +8,7 @@ from pathlib import Path
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
-print("🗂️ BASE:", BASE)
+print("BASE:", BASE)
 
 # --- transactions (funnel) ---
 transactions_path = BASE / "transactions.csv"
