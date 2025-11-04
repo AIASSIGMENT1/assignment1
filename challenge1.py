@@ -1,127 +1,173 @@
 import pandas as pd
-import glob
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import glob
-from pathlib import Path
-from pathlib import Path
+from sklearn.preprocessing import StandardScaler
 
-BASE = Path(__file__).resolve().parent
-print("BASE:", BASE)
+# --------------------------------------------------------------------
+# LOAD DATA
+# --------------------------------------------------------------------
+transactions = pd.read_csv("transactions.csv")
 
-# --- transactions (funnel) ---
-transactions_path = BASE / "transactions.csv"
-transactions = pd.read_csv(transactions_path,
-                           parse_dates=[c for c in ["Date","date"] if c in pd.read_csv(transactions_path, nrows=0).columns])
-# Normalizo nombre de fecha
-transactions.rename(columns={"date":"Date"}, inplace=True)
+scores_2020 = pd.read_csv("scores_20.csv")
+scores_2021 = pd.read_csv("scores_21.csv")
+scores_2022 = pd.read_csv("scores_22.csv")
+scores_2023 = pd.read_csv("scores_23.csv")
 
-# --- analytics ---
-analytics_path = BASE / "analytics_data.csv"
-analytics = pd.read_csv(analytics_path)
+budget = pd.read_excel("budget_units.xlsx")
+analytics = pd.read_csv("analytics_data.csv")
 
-# --- budget ---
-budget_path = BASE / "budget_units.xlsx"
-try:
-    budget = pd.read_excel(budget_path, engine="openpyxl")
-except Exception as e:
-    raise RuntimeError(f"No pude leer {budget_path}: {e}")
+# --------------------------------------------------------------------
+# TRANSACTION DATA CLEANING
+# --------------------------------------------------------------------
+print("\n--- TRANSACTION DATA CLEANING ---")
+print("Shape:", transactions.shape)
+print(transactions.info())
 
-# --- scores (varios años) ---
-score_files = sorted((BASE).glob("scores_*.csv"))
-if not score_files:
-    raise FileNotFoundError("No encontré archivos 'scores_*.csv' en la carpeta del script.")
-scores = pd.concat([pd.read_csv(f) for f in score_files], ignore_index=True)
+# Clean column names (consistent formatting)
+transactions.columns = transactions.columns.str.strip().str.lower()
 
-# ---- prints útiles ----
-print("\nCARGA OK")
-print("transactions:", transactions.shape, "— columnas:", list(transactions.columns))
-print("analytics   :", analytics.shape, "— columnas:", list(analytics.columns))
-print("budget      :", budget.shape, "— columnas:", list(budget.columns))
-print("scores      :", scores.shape, "— columnas:", list(scores.columns))
-
-print("\nRango de fechas en transactions:", transactions["Date"].min(), "→", transactions["Date"].max())
-print("\nPREVIEW")
-print("transactions.head():\n", transactions.head().to_string(index=False))
-print("\nanalytics.head():\n", analytics.head().to_string(index=False))
-print("\nbudget.head():\n", budget.head().to_string(index=False))
-print("\nscores.head():\n", scores.head().to_string(index=False))
-
-
-
-# --- DATA CLEANING ---
-def clean_columns(df):
-    df.columns = (
-        df.columns
-        .str.strip()
-        .str.lower()
-        .str.replace(r"[^a-z0-9]+", "_", regex=True)
-        .str.strip("_")
-    )
-    return df
-
-transactions = clean_columns(transactions)
-analytics = clean_columns(analytics)
-budget = clean_columns(budget)
-scores = clean_columns(scores)
-
-
-#nulos y duplicados
-for name, df in zip(
-    ["transactions", "analytics", "budget", "scores"],
-    [transactions, analytics, budget, scores]
-):
-    print(f"\n{name.upper()} nulls:")
-    print(df.isna().sum())
-#eliminar duplicados
-# eliminar duplicados
-transactions = transactions.drop_duplicates()
-analytics = analytics.drop_duplicates()
-budget = budget.drop_duplicates()
-scores = scores.drop_duplicates()
-
-# rellenar valores faltantes si hace falta
-scores = scores.fillna({'organization': scores['organization'].median(),
-                        'global_satisfaction': scores['global_satisfaction'].median()})
-budget = budget.fillna('unknown')
-
-
-#asegurar que las fechas y categorías estén en el formato correcto (datetime y category)
+# Convert 'date' column to datetime
 transactions['date'] = pd.to_datetime(transactions['date'], errors='coerce')
-transactions['status'] = transactions['status'].astype('category')
-transactions['operator_id'] = transactions['operator_id'].astype('category')
 
+# Drop rows missing essential columns
+transactions = transactions.dropna(subset=['date', 'customer id', 'status'])
 
-#estandarizar nombres de trips (quitar espacios, pasar a minúsculas)
-for df in [analytics, budget, scores]:
-    if 'trip' in df.columns:
-        df['trip'] = df['trip'].str.strip().str.lower()
-    if 'trip_name' in df.columns:
-        df['trip_name'] = df['trip_name'].str.strip().str.lower()
+# Fill optional fields
+if 'operator id' in transactions.columns:
+    transactions['operator id'].fillna('unknown', inplace=True)
 
-# renombramos para tener todos igual
-budget.rename(columns={'trip': 'trip_name'}, inplace=True)
-scores.rename(columns={'trip': 'trip_name'}, inplace=True)
+# Add a year column
+transactions['year'] = transactions['date'].dt.year
 
+# Clean text columns
+transactions['status'] = transactions['status'].str.strip().str.lower()
 
-# --- OUTLIER REMOVAL ---
-# detectar outliers y limpiar valores extremos.
-def cap_outliers(df, cols, low=0.01, high=0.99):
-    for c in cols:
-        q_low, q_high = df[c].quantile([low, high])
-        df[c] = df[c].clip(q_low, q_high)
+# Check for outliers or unusual years
+print("\nTransaction years distribution:")
+print(transactions['year'].value_counts().sort_index())
+
+# --------------------------------------------------------------------
+# SCORES DATA CLEANING
+# --------------------------------------------------------------------
+print("\n--- SCORES DATA CLEANING ---")
+def clean_scores(filepath, year):
+    df = pd.read_csv(filepath)
+    print(f"\n--- Cleaning {filepath} ---")
+    print("Before cleaning:", df.shape)
+
+    # Standardize column names
+    df.columns = df.columns.str.strip().str.lower()
+
+    # Check for required columns first (avoids KeyError)
+    expected_cols = ['trip', 'organization', 'global_satisfaction']
+    for col in expected_cols:
+        if col not in df.columns:
+            raise ValueError(f"Missing expected column '{col}' in {filepath}")
+
+    # Drop rows missing key data
+    df.dropna(subset=expected_cols, inplace=True)
+
+    # Convert numeric columns
+    numeric_cols = ['organization', 'global_satisfaction']
+    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
+    df.dropna(subset=numeric_cols, inplace=True)
+
+    # Outlier removal (IQR)
+    def remove_outliers_iqr(data, col):
+        Q1 = data[col].quantile(0.25)
+        Q3 = data[col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower = Q1 - 1.5 * IQR
+        upper = Q3 + 1.5 * IQR
+        return data[(data[col] >= lower) & (data[col] <= upper)]
+
+    for col in numeric_cols:
+        df = remove_outliers_iqr(df, col)
+
+    # Add year column
+    df['year'] = year
+
+    print("After cleaning:", df.shape)
     return df
 
-# aplicamos a métricas numéricas
-analytics = cap_outliers(analytics, ['page_views', 'unique_visitors'])
-scores = cap_outliers(scores, ['organization', 'global_satisfaction'])
+# Clean each scores dataset separately
+scores_2020 = clean_scores("scores_20.csv", 2020)
+scores_2021 = clean_scores("scores_21.csv", 2021)
+scores_2022 = clean_scores("scores_22.csv", 2022)
+scores_2023 = clean_scores("scores_23.csv", 2023)
 
+# --------------------------------------------------------------------
+# BUDGET DATA CLEANING
+# --------------------------------------------------------------------
+print("\n--- BUDGET DATA CLEANING ---")
+print("Shape:", budget.shape)
+print(budget.info())
 
-# --- DATA EXPLORATION ---
+# Clean column names
+budget.columns = budget.columns.str.strip().str.lower()
 
+# Drop duplicates and missing trip names
+budget = budget.drop_duplicates().dropna(subset=['trip'])
 
-# --- FEATURE PREPARATION ---
+# Transform from wide to long format
+budget_long = budget.melt(
+    id_vars=['trip'],
+    var_name='period_year',
+    value_name='budget_category'
+)
 
+# Drop missing categories and convert to categorical
+budget_long = budget_long.dropna(subset=['budget_category'])
+budget_long['budget_category'] = budget_long['budget_category'].astype('category')
 
-# --- CONCLUSION --- (poner tablas y comentarlas...)
+# Rename for clarity
+budget_clean = budget_long.rename(columns={'trip': 'trip_name'})
+
+print("\nFinal Cleaned Budget Data Info:")
+print(budget_clean.info())
+print(budget_clean.head())
+
+# --------------------------------------------------------------------
+# ANALYTICS DATA CLEANING
+# --------------------------------------------------------------------
+print("\n--- ANALYTICS DATA CLEANING ---")
+
+analytics.columns = analytics.columns.str.strip().str.lower()
+print("Shape:", analytics.shape)
+print(analytics.info())
+
+# Drop rows missing essential ID
+analytics.dropna(subset=['trip_name'], inplace=True)
+
+# Define numeric columns
+numeric_cols = ['page_views', 'unique_visitors', 'avg_session_duration', 'bounce_rate', 'conversion_rate']
+
+# Clean and convert percentage & duration columns
+for col in ['bounce_rate', 'conversion_rate']:
+    if analytics[col].dtype == 'object':
+        analytics[col] = analytics[col].str.replace('%', '', regex=False)
+if 'avg_session_duration' in analytics.columns:
+    analytics['avg_session_duration'] = analytics['avg_session_duration'].str.replace('s', '', regex=False)
+
+# Convert to numeric
+analytics[numeric_cols] = analytics[numeric_cols].apply(pd.to_numeric, errors='coerce')
+
+# Drop missing numeric data
+analytics.dropna(subset=numeric_cols, inplace=True)
+
+# Outlier removal
+def remove_outliers_iqr(df, col):
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    IQR = Q3 - Q1
+    lower = Q1 - 1.5 * IQR
+    upper = Q3 + 1.5 * IQR
+    return df[(df[col] >= lower) & (df[col] <= upper)]
+
+for col in numeric_cols:
+    analytics = remove_outliers_iqr(analytics, col)
+
+# Standardize numeric variables
+scaler = StandardScaler()
+analytics[numeric_cols] = scaler.fit_transform(analytics[numeric_cols])
+
+print("\nClean Analytics Data Shape:", analytics.shape)
+print(analytics.head())
