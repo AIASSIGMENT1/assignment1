@@ -1,6 +1,6 @@
 import pandas as pd
 import glob
-
+import numpy as np
 # Load transactions data
 transactions = pd.read_csv("transactions.csv", parse_dates=['Date'])
 # Load website analytics data
