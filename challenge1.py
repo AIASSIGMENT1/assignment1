@@ -153,17 +153,20 @@ analytics[numeric_cols] = analytics[numeric_cols].apply(pd.to_numeric, errors='c
 # Drop missing numeric data
 analytics.dropna(subset=numeric_cols, inplace=True)
 
-# Outlier removal
-def remove_outliers_iqr(df, col):
+# Outlier imputation with median
+def impute_outliers_iqr(df, col):
     Q1 = df[col].quantile(0.25)
     Q3 = df[col].quantile(0.75)
     IQR = Q3 - Q1
     lower = Q1 - 1.5 * IQR
     upper = Q3 + 1.5 * IQR
-    return df[(df[col] >= lower) & (df[col] <= upper)]
+    median_val = df[col].median()
+    df[col] = df[col].mask((df[col] < lower) | (df[col] > upper), median_val)
+    return df
 
 for col in numeric_cols:
-    analytics = remove_outliers_iqr(analytics, col)
+    analytics = impute_outliers_iqr(analytics, col)
+
 
 # Standardize numeric variables
 scaler = StandardScaler()
