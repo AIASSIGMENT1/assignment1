@@ -121,6 +121,13 @@ budget_long = budget.melt(
     value_name='budget_category'
 )
 
+# Fix period_year column so it matches numeric year format
+budget_long['period_year'] = (
+    budget_long['period_year']
+    .str.extract(r'(\d+)')   # Extract digits (e.g., '20', '21', '22')
+    .astype(int) + 2000      # Convert to full year format
+)
+
 # Drop missing categories and convert to categorical
 budget_long = budget_long.dropna(subset=['budget_category'])
 budget_long['budget_category'] = budget_long['budget_category'].astype('category')
@@ -262,4 +269,3 @@ analytics_merged = pd.merge(
     analytics, budget_clean,
     left_on='trip_name', right_on='trip_name', how='left'
 )
-
