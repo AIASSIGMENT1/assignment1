@@ -94,6 +94,14 @@ scores_2021 = clean_scores("scores_21.csv", 2021)
 scores_2022 = clean_scores("scores_22.csv", 2022)
 scores_2023 = clean_scores("scores_23.csv", 2023)
 
+#Combine the yearly scores
+scores_all = pd.concat(
+    [scores_2020, scores_2021, scores_2022, scores_2023],
+    ignore_index=True
+)
+print(scores_all['year'].value_counts().sort_index())
+
+
 # --------------------------------------------------------------------
 # BUDGET DATA CLEANING
 # --------------------------------------------------------------------
