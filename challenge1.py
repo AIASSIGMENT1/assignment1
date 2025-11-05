@@ -1,5 +1,6 @@
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
 
 # --------------------------------------------------------------------
 # LOAD DATA
@@ -17,10 +18,6 @@ analytics = pd.read_csv("analytics_data.csv")
 # --------------------------------------------------------------------
 # TRANSACTION DATA CLEANING
 # --------------------------------------------------------------------
-print("\n--- TRANSACTION DATA CLEANING ---")
-print("Shape:", transactions.shape)
-print(transactions.info())
-
 # Clean column names (consistent formatting)
 transactions.columns = transactions.columns.str.strip().str.lower()
 
@@ -30,9 +27,12 @@ transactions['date'] = pd.to_datetime(transactions['date'], errors='coerce')
 # Drop rows missing essential columns
 transactions = transactions.dropna(subset=['date', 'customer id', 'status'])
 
-# Fill optional fields
-if 'operator id' in transactions.columns:
-    transactions['operator id'].fillna('unknown', inplace=True)
+# Rename columns for consistency
+transactions.rename(columns={'customer id':'customer_id','operator id':'operator_id'}, inplace=True)
+
+# then fillna with assignment
+if 'operator_id' in transactions.columns:
+    transactions['operator_id'] = transactions['operator_id'].fillna('unknown')
 
 # Add a year column
 transactions['year'] = transactions['date'].dt.year
@@ -40,19 +40,31 @@ transactions['year'] = transactions['date'].dt.year
 # Clean text columns
 transactions['status'] = transactions['status'].str.strip().str.lower()
 
-# Check for outliers or unusual years
-print("\nTransaction years distribution:")
-print(transactions['year'].value_counts().sort_index())
+ #Standardize status values to a known set and check unexpected values
+transactions['status'] = transactions['status'].str.strip().str.lower().replace({
+    'paid diposit': 'paid deposit'
+})
+
+allowed = {'filled in form','not reachable','paid deposit','sales','cancelled'}
+unexpected = set(transactions['status'].unique()) - allowed
+if unexpected:
+    print("Unexpected status values:", unexpected)
+
+
+def summarize_transactions(df):
+    print("\nTRANSACTIONS (clean)")
+    print(f"rows={len(df)}, cols={len(df.columns)}")
+    print("date range:", df['date'].min().date(), "→", df['date'].max().date())
+    print("status counts (top):")
+    print(df['status'].value_counts().to_string())
+    print("year counts:")
+    print(df['year'].value_counts().sort_index().to_string())
 
 # --------------------------------------------------------------------
 # SCORES DATA CLEANING
 # --------------------------------------------------------------------
-print("\n--- SCORES DATA CLEANING ---")
 def clean_scores(filepath, year):
     df = pd.read_csv(filepath)
-    print(f"\n--- Cleaning {filepath} ---")
-    print("Before cleaning:", df.shape)
-
     # Standardize column names
     df.columns = df.columns.str.strip().str.lower()
 
@@ -84,10 +96,9 @@ def clean_scores(filepath, year):
 
     # Add year column
     df['year'] = year
-
-    print("After cleaning:", df.shape)
     return df
 
+    
 # Clean each scores dataset separately
 scores_2020 = clean_scores("scores_20.csv", 2020)
 scores_2021 = clean_scores("scores_21.csv", 2021)
@@ -99,15 +110,20 @@ scores_all = pd.concat(
     [scores_2020, scores_2021, scores_2022, scores_2023],
     ignore_index=True
 )
-print(scores_all['year'].value_counts().sort_index())
+def summarize_scores(df_all):
+    print("\nSCORES (clean, all years)")
+    print(f"rows={len(df_all)}, cols={len(df_all.columns)}")
+    print("rows per year:")
+    print(df_all['year'].value_counts().sort_index().to_string())
+    # estadísticas básicas de satisfacción
+    stats = df_all[['organization','global_satisfaction']].describe().loc[['mean','std','min','max']]
+    print("\nsatisfaction stats (org & global):")
+    print(stats.to_string())
+
 
 # --------------------------------------------------------------------
 # BUDGET DATA CLEANING
 # --------------------------------------------------------------------
-print("\n--- BUDGET DATA CLEANING ---")
-print("Shape:", budget.shape)
-print(budget.info())
-
 # Clean column names
 budget.columns = budget.columns.str.strip().str.lower()
 
@@ -121,11 +137,11 @@ budget_long = budget.melt(
     value_name='budget_category'
 )
 
-# Fix period_year column so it matches numeric year format
+# to convert 'period_20' → 2020, 'period_21' → 2021, etc.
 budget_long['period_year'] = (
     budget_long['period_year']
-    .str.extract(r'(\d+)')   # Extract digits (e.g., '20', '21', '22')
-    .astype(int) + 2000      # Convert to full year format
+    .str.extract(r'(\d+)$')     
+    .astype(int) + 2000         
 )
 
 # Drop missing categories and convert to categorical
@@ -135,18 +151,26 @@ budget_long['budget_category'] = budget_long['budget_category'].astype('category
 # Rename for clarity
 budget_clean = budget_long.rename(columns={'trip': 'trip_name'})
 
-print("\nFinal Cleaned Budget Data Info:")
-print(budget_clean.info())
-print(budget_clean.head())
+#Ensure budget letter consistency and ordering
+budget_clean['budget_category'] = (
+    budget_clean['budget_category'].astype(str).str.upper().str.strip()
+)
+budget_clean['budget_category'] = pd.Categorical(
+    budget_clean['budget_category'], categories=list("ABCD"), ordered=True
+)
+def summarize_budget(df):
+    print("\nBUDGET (clean, long format)")
+    print(f"rows={len(df)}, cols={len(df.columns)}")
+    print("year range:", int(df['period_year'].min()), "→", int(df['period_year'].max()))
+    print("budget_category counts (A–D):")
+    print(df['budget_category'].value_counts().to_string())
+
+
 
 # --------------------------------------------------------------------
 # ANALYTICS DATA CLEANING
 # --------------------------------------------------------------------
-print("\n--- ANALYTICS DATA CLEANING ---")
-
 analytics.columns = analytics.columns.str.strip().str.lower()
-print("Shape:", analytics.shape)
-print(analytics.info())
 
 # Drop rows missing essential ID
 analytics.dropna(subset=['trip_name'], inplace=True)
@@ -167,6 +191,9 @@ analytics[numeric_cols] = analytics[numeric_cols].apply(pd.to_numeric, errors='c
 # Drop missing numeric data
 analytics.dropna(subset=numeric_cols, inplace=True)
 
+# Convert percent columns to proportions (so 1.5% → 0.015)
+analytics['bounce_rate'] = analytics['bounce_rate'] / 100.0
+analytics['conversion_rate'] = analytics['conversion_rate'] / 100.0
 
 # Outlier imputation with median
 def impute_outliers_iqr(df, col):
@@ -182,77 +209,114 @@ def impute_outliers_iqr(df, col):
 for col in numeric_cols:
     analytics = impute_outliers_iqr(analytics, col)
 
-# Standardize numeric variables
-scaler = StandardScaler()
-analytics[numeric_cols] = scaler.fit_transform(analytics[numeric_cols])
 
-print("\nClean Analytics Data Shape:", analytics.shape)
-print(analytics.head())
+# Standardize numeric variables (create z-score columns without overwriting originals)
+scaled = analytics[numeric_cols].apply(lambda s: (s - s.mean()) / s.std(ddof=0))
+analytics[[c + '_z' for c in numeric_cols]] = scaled
 
+def summarize_analytics(df):
+    print("\nANALYTICS (clean)")
+    print(f"rows={len(df)}, cols={len(df.columns)}")
+    # columnas originales clave
+    base_cols = ['page_views','unique_visitors','avg_session_duration','bounce_rate','conversion_rate']
+    existing = [c for c in base_cols if c in df.columns]
+    print("columns:", existing, "+ z-scores added")
+    # percentiles compactos
+    desc = df[existing].quantile([0,0.5,1]).rename(index={0:'min',0.5:'median',1:'max'})
+    print(desc.to_string())
 
+# --------------------------------------------------------------------
+# BEFORE MERGING (APPLIES TO ALL DATAFRAMES)
+# --------------------------------------------------------------------
+# Normalize trip name columns for merging
+def norm_trip_cols(df):
+    if 'trip' in df.columns:
+        df['trip'] = df['trip'].str.strip().str.lower()
+    if 'trip_name' in df.columns:
+        df['trip_name'] = df['trip_name'].str.strip().str.lower()
+    return df
+
+analytics = norm_trip_cols(analytics)
+scores_all = norm_trip_cols(scores_all)
+budget_clean = norm_trip_cols(budget_clean)
+
+summarize_transactions(transactions)
+summarize_scores(scores_all)
+summarize_budget(budget_clean)
+summarize_analytics(analytics)
 
 
 # --------------------------------------------------------------------
 # EXPLORATORY DATA ANALYSIS
 # --------------------------------------------------------------------
+plt.style.use('seaborn-v0_8') #makes plots look nicer and more clear.
 
-
-#(a) Sales trend
-#Count the number of completed sales per year:
-
+#(a) Sales trend. It counts how many unique customers actually bought something each year and then plots a line chart to show if sales went up or down over time.
+#Count the number of completed sales per year: (shows volume--> how many sales each year.)
 sales_trend = (
     transactions[transactions['status'] == 'sales']
-    .groupby('year')['customer id']
+    .groupby('year')['customer_id']
     .nunique()
     .reset_index(name='num_sales')
 )
+
 print(sales_trend)
-sales_trend.plot(x='year', y='num_sales', kind='line', title='Yearly Sales Trend')
 
+sales_trend.plot(x='year', y='num_sales', kind='line', marker='o',
+                 title='Yearly Sales Trend', ylabel='Number of Sales')
+plt.show() #This shows whether sales are increasing or decreasing over time.
 
-
-#(b) Funnel conversion
-#You can see how efficiently the funnel converts:
-
+#(b) Funnel conversion: Shows what % of leads who filled the form actually made a purchase — your conversion rate.
 transactions_summary = (
-    transactions.groupby(['year', 'status'])['customer id']
+    transactions.groupby(['year', 'status'])['customer_id']
     .nunique()
     .unstack(fill_value=0)
 )
-transactions_summary['conversion_rate'] = transactions_summary['sales'] / transactions_summary['filled in form']
+
+transactions_summary['conversion_rate'] = (
+    transactions_summary['sales'] / transactions_summary['filled in form']
+)
+
 print(transactions_summary)
 
+transactions_summary['conversion_rate'].plot(kind='bar', title='Conversion Rate by Year')
+plt.show()
 
-
-#(c) Satisfaction trends
-
+#(c) Satisfaction trends: Are customers happier or less satisfied compared to previous years?
 satisfaction_trend = (
     scores_all.groupby('year')[['organization', 'global_satisfaction']].mean()
 )
+
 print(satisfaction_trend)
-satisfaction_trend.plot(y=['organization', 'global_satisfaction'], title='Average Satisfaction by Year')
+
+satisfaction_trend.plot(y=['organization', 'global_satisfaction'],
+                        marker='o', title='Average Satisfaction by Year')
+plt.ylabel('Satisfaction Score (1–10)')
+plt.show()
+
+#(d) Budget distribution: Shows the mix of trip price levels (A = luxury, D = budget).
+latest_budget = (
+    budget_clean.sort_values('period_year')
+    .drop_duplicates(subset='trip_name', keep='last')
+)
+
+latest_budget['budget_category'].value_counts().plot(kind='bar',
+                                                     title='Trips by Budget Category (Latest Year)')
+plt.ylabel('Number of Trips')
+plt.show()
 
 
+#(e) Web analytics overview: Helps see which trips attract more visitors or have better conversion.
+print(analytics.describe()[['page_views','unique_visitors','bounce_rate','conversion_rate']])
 
-#(d) Budget distribution
-
-print(budget_clean['budget_category'].value_counts())
-budget_clean['budget_category'].value_counts().plot(kind='bar', title='Trips by Budget Category')
-
-
-
-#(e) Web analytics overview
-
-analytics.describe()
-analytics[['page_views','unique_visitors','bounce_rate','conversion_rate']].hist(figsize=(8,6))
-
+analytics[['page_views','unique_visitors','bounce_rate','conversion_rate']].hist(figsize=(10,6))
+plt.suptitle('Distribution of Website Metrics', fontsize=14)
+plt.show()
 
 
 # --------------------------------------------------------------------
 # RELATE DATASETS (to explain sales changes)
 # --------------------------------------------------------------------
-
-
 #(a) Merge satisfaction with budget
 # Here you can check whether high-budget trips get lower satisfaction.
 scores_budget = pd.merge(
@@ -261,11 +325,23 @@ scores_budget = pd.merge(
     how='left'
 )
 
+avg_sat_by_budget = (
+    scores_budget.groupby('budget_category')[['organization', 'global_satisfaction']]
+    .mean()
+)
+print(avg_sat_by_budget)
+avg_sat_by_budget.plot(kind='bar', title='Average Satisfaction by Budget Category')
+plt.ylabel('Satisfaction Score')
+plt.show() #Does trip satisfaction vary by budget? See if luxury trips (A/B) get higher or lower satisfaction than budget ones (C/D).
 
 #(b) Merge analytics with satisfaction or budget
 # Helps you see if bounce rate or conversion rate correlate with trip cost or satisfaction.
-
-analytics_merged = pd.merge(
+analytics_budget = pd.merge(
     analytics, budget_clean,
-    left_on='trip_name', right_on='trip_name', how='left'
+    on='trip_name', how='left'
 )
+
+analytics_budget.groupby('budget_category')[['conversion_rate','bounce_rate']].mean().plot(
+    kind='bar', title='Web Metrics by Budget Category'
+)
+plt.show() #Does website performance differ by budget? Check if cheaper or premium trips have better engagement online.
