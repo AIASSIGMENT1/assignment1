@@ -182,3 +182,164 @@ analytics[numeric_cols] = scaler.fit_transform(analytics[numeric_cols])
 
 print("\nClean Analytics Data Shape:", analytics.shape)
 print(analytics.head())
+
+
+
+
+# --------------------------------------------------------------------
+# EXPLORATORY DATA ANALYSIS
+# --------------------------------------------------------------------
+
+
+#(a) Sales trend
+#Count the number of completed sales per year:
+
+sales_trend = (
+    transactions[transactions['status'] == 'sales']
+    .groupby('year')['customer id']
+    .nunique()
+    .reset_index(name='num_sales')
+)
+print(sales_trend)
+sales_trend.plot(x='year', y='num_sales', kind='line', title='Yearly Sales Trend')
+
+
+
+#(b) Funnel conversion
+#You can see how efficiently the funnel converts:
+
+transactions_summary = (
+    transactions.groupby(['year', 'status'])['customer id']
+    .nunique()
+    .unstack(fill_value=0)
+)
+transactions_summary['conversion_rate'] = transactions_summary['sales'] / transactions_summary['filled in form']
+print(transactions_summary)
+
+
+
+#(c) Satisfaction trends
+
+satisfaction_trend = (
+    scores_all.groupby('year')[['organization', 'global_satisfaction']].mean()
+)
+print(satisfaction_trend)
+satisfaction_trend.plot(y=['organization', 'global_satisfaction'], title='Average Satisfaction by Year')
+
+
+
+#(d) Budget distribution
+
+print(budget_clean['budget_category'].value_counts())
+budget_clean['budget_category'].value_counts().plot(kind='bar', title='Trips by Budget Category')
+
+
+
+#(e) Web analytics overview
+
+analytics.describe()
+analytics[['page_views','unique_visitors','bounce_rate','conversion_rate']].hist(figsize=(8,6))
+
+
+
+# --------------------------------------------------------------------
+# RELATE DATASETS (to explain sales changes)
+# --------------------------------------------------------------------
+
+
+#(a) Merge satisfaction with budget
+# Here you can check whether high-budget trips get lower satisfaction.
+scores_budget = pd.merge(
+    scores_all, budget_clean,
+    left_on=['trip', 'year'], right_on=['trip_name', 'period_year'],
+    how='left'
+)
+
+
+#(b) Merge analytics with satisfaction or budget
+# Helps you see if bounce rate or conversion rate correlate with trip cost or satisfaction.
+
+analytics_merged = pd.merge(
+    analytics, budget_clean,
+    left_on='trip_name', right_on='trip_name', how='left'
+)
+
+
+# --------------------------------------------------------------------
+# EXPLORATORY DATA ANALYSIS
+# --------------------------------------------------------------------
+
+
+#(a) Sales trend
+#Count the number of completed sales per year:
+
+sales_trend = (
+    transactions[transactions['status'] == 'sales']
+    .groupby('year')['customer id']
+    .nunique()
+    .reset_index(name='num_sales')
+)
+print(sales_trend)
+sales_trend.plot(x='year', y='num_sales', kind='line', title='Yearly Sales Trend')
+
+
+
+#(b) Funnel conversion
+#You can see how efficiently the funnel converts:
+
+transactions_summary = (
+    transactions.groupby(['year', 'status'])['customer id']
+    .nunique()
+    .unstack(fill_value=0)
+)
+transactions_summary['conversion_rate'] = transactions_summary['sales'] / transactions_summary['filled in form']
+print(transactions_summary)
+
+
+
+#(c) Satisfaction trends
+
+satisfaction_trend = (
+    scores_all.groupby('year')[['organization', 'global_satisfaction']].mean()
+)
+print(satisfaction_trend)
+satisfaction_trend.plot(y=['organization', 'global_satisfaction'], title='Average Satisfaction by Year')
+
+
+
+#(d) Budget distribution
+
+print(budget_clean['budget_category'].value_counts())
+budget_clean['budget_category'].value_counts().plot(kind='bar', title='Trips by Budget Category')
+
+
+
+#(e) Web analytics overview
+
+analytics.describe()
+analytics[['page_views','unique_visitors','bounce_rate','conversion_rate']].hist(figsize=(8,6))
+
+
+
+# --------------------------------------------------------------------
+# RELATE DATASETS (to explain sales changes)
+# --------------------------------------------------------------------
+
+
+#(a) Merge satisfaction with budget
+# Here you can check whether high-budget trips get lower satisfaction.
+scores_budget = pd.merge(
+    scores_all, budget_clean,
+    left_on=['trip', 'year'], right_on=['trip_name', 'period_year'],
+    how='left'
+)
+
+
+#(b) Merge analytics with satisfaction or budget
+# Helps you see if bounce rate or conversion rate correlate with trip cost or satisfaction.
+
+analytics_merged = pd.merge(
+    analytics, budget_clean,
+    left_on='trip_name', right_on='trip_name', how='left'
+)
+
