@@ -1,7 +1,7 @@
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
-
+import numpy as np
 # --------------------------------------------------------------------
 # LOAD DATA
 # --------------------------------------------------------------------
@@ -312,6 +312,78 @@ print(analytics.describe()[['page_views','unique_visitors','bounce_rate','conver
 analytics[['page_views','unique_visitors','bounce_rate','conversion_rate']].hist(figsize=(10,6))
 plt.suptitle('Distribution of Website Metrics', fontsize=14)
 plt.show()
+
+# --------------------------------------------------------------------
+# BUILD YEARLY PANEL FOR CORRELATIONS
+# --------------------------------------------------------------------
+yearly_funnel = (
+    transactions.groupby(['year', 'status'])['customer_id']
+    .nunique()
+    .unstack(fill_value=0)
+    .rename_axis(None, axis=1)
+    .reset_index()
+)
+
+# Ensure consistent column names
+yearly_funnel = yearly_funnel.rename(columns={'filled in form': 'leads'})
+yearly_funnel['conversion_rate'] = yearly_funnel['sales'] / yearly_funnel['leads']
+
+yearly_satisfaction = (
+    scores_all.groupby('year')[['organization', 'global_satisfaction']]
+    .mean()
+    .reset_index()
+)
+
+# Merge everything into a single panel
+yearly = yearly_funnel.merge(yearly_satisfaction, on='year', how='left')
+
+# --------------------------------------------------------------------
+# CORRELATIONS
+# --------------------------------------------------------------------
+corr_to_sales = yearly[['sales', 'leads', 'conversion_rate',
+                        'organization', 'global_satisfaction']].corr()['sales']
+
+print("\nPearson correlations with SALES:")
+print(corr_to_sales)
+
+# --------------------------------------------------------------------
+# SCATTERPLOTS WITH TREND LINES
+# --------------------------------------------------------------------
+
+def scatter_with_trend(x, y, xlab, ylab, title):
+    # Build a clean (x,y) DataFrame
+    s = pd.DataFrame({'x': x, 'y': y}).replace([np.inf, -np.inf], np.nan).dropna()
+
+    # Always show the scatter (even if we can't fit a line)
+    plt.figure()
+    plt.scatter(s['x'], s['y'])
+    plt.title(title)
+    plt.xlabel(xlab); plt.ylabel(ylab)
+
+    # Compute r on the cleaned data
+    r = s['x'].corr(s['y'])
+    if pd.notna(r):
+        plt.text(0.02, 0.95, f"r = {r:.2f}", transform=plt.gca().transAxes)
+
+    # Only fit a line if we have >= 2 points and x varies
+    if len(s) >= 2 and s['x'].nunique() >= 2:
+        m, b = np.polyfit(s['x'].to_numpy(), s['y'].to_numpy(), 1)
+        xs = np.linspace(s['x'].min(), s['x'].max(), 100)
+        plt.plot(xs, m*xs + b)
+    else:
+        plt.text(0.02, 0.90, "(not enough data to fit a line)", transform=plt.gca().transAxes)
+
+    plt.show()
+
+# Plots
+scatter_with_trend(yearly['leads'], yearly['sales'],
+                   "Leads", "Sales", "Sales vs Leads")
+
+scatter_with_trend(yearly['conversion_rate'], yearly['sales'],
+                   "Conversion rate", "Sales", "Sales vs Conversion rate")
+
+scatter_with_trend(yearly['global_satisfaction'], yearly['sales'],
+                   "Global satisfaction", "Sales", "Sales vs Satisfaction")
 
 # --------------------------------------------------------------------
 # RELATE DATASETS (to explain sales changes)
