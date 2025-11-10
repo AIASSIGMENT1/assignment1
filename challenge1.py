@@ -282,6 +282,28 @@ print(transactions_summary)
 transactions_summary['conversion_rate'].plot(kind='bar', title='Conversion Rate by Year')
 plt.show()
 
+
+#a/b. 1 Quantitative evidence: year-over-year % changes
+# Year-over-year % change in sales
+sales_trend['pct_change_sales'] = sales_trend['num_sales'].pct_change() * 100
+print("\nYear-over-year % change in sales:")
+print(sales_trend[['year', 'num_sales', 'pct_change_sales']])
+
+# Year-over-year % change in conversion rate
+transactions_summary['conversion_rate_pct_change'] = (
+    transactions_summary['conversion_rate'].pct_change() * 100
+)
+print("\nYear-over-year % change in conversion rate:")
+print(transactions_summary[['conversion_rate', 'conversion_rate_pct_change']])
+
+# Optional visual: bar chart of % sales change
+sales_trend.plot(x='year', y='pct_change_sales', kind='bar',
+                 title='% Change in Sales per Year', ylabel='% Change from Previous Year')
+plt.show()
+
+
+
+
 #(c) Satisfaction trends: Are customers happier or less satisfied compared to previous years?
 satisfaction_trend = (
     scores_all.groupby('year')[['organization', 'global_satisfaction']].mean()
